@@ -285,6 +285,41 @@ func TestAddCacheRoundTripper(t *testing.T) {
 	}
 }
 
+func TestRoundTripPassThroughWithoutPrefix(t *testing.T) {
+	mockRT := &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			if req.URL.Scheme != "https" {
+				t.Fatalf("expected scheme https, got %s", req.URL.Scheme)
+			}
+			if req.URL.Host != "example.com" {
+				t.Fatalf("expected host example.com, got %s", req.URL.Host)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("pass-through")),
+				Request:    req,
+			}, nil
+		},
+	}
+
+	rt, err := NewRoundTripper(t.TempDir(), mockRT)
+	if err != nil {
+		t.Fatalf("NewRoundTripper() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/data", nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip() error = %v", err)
+	}
+	if mockRT.callCount != 1 {
+		t.Fatalf("expected original transport to be called once, got %d", mockRT.callCount)
+	}
+	if got := readBody(t, resp.Body); got != "pass-through" {
+		t.Fatalf("expected pass-through body, got %q", got)
+	}
+}
+
 func readBody(t *testing.T, body io.ReadCloser) string {
 	t.Helper()
 	defer body.Close()
