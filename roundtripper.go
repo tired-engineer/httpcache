@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type cacheRoundTripper struct {
@@ -68,7 +69,12 @@ func (c *cacheRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 }
 
 func (c *cacheRoundTripper) roundTripWithValidation(req *http.Request) (*http.Response, error) {
-	cachePath := c.cachePathForURL(req.URL)
+	downstreamURL, err := unwrapScheme(req.URL, "cache")
+	if err != nil {
+		return nil, err
+	}
+
+	cachePath := c.cachePathForURL(downstreamURL)
 	cachedBody, cachedInfo, cacheErr := readCacheFile(cachePath)
 	hasCache := cacheErr == nil
 	if cacheErr != nil && !errors.Is(cacheErr, os.ErrNotExist) {
@@ -76,8 +82,7 @@ func (c *cacheRoundTripper) roundTripWithValidation(req *http.Request) (*http.Re
 	}
 
 	upstreamReq := req.Clone(req.Context())
-	upstreamReq.URL = cloneURL(req.URL)
-	upstreamReq.URL.Scheme = "http"
+	upstreamReq.URL = downstreamURL
 
 	if hasCache && upstreamReq.Header.Get("If-Modified-Since") == "" {
 		upstreamReq.Header.Set("If-Modified-Since", cachedInfo.ModTime().UTC().Format(http.TimeFormat))
@@ -122,11 +127,16 @@ func (c *cacheRoundTripper) roundTripWithValidation(req *http.Request) (*http.Re
 }
 
 func (c *cacheRoundTripper) roundTripCacheOnly(req *http.Request) (*http.Response, error) {
-	cachePath := c.cachePathForURL(req.URL)
+	downstreamURL, err := unwrapScheme(req.URL, "cachez")
+	if err != nil {
+		return nil, err
+	}
+
+	cachePath := c.cachePathForURL(downstreamURL)
 	cachedBody, _, err := readCacheFile(cachePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("cache miss for %s", req.URL.String())
+			return nil, fmt.Errorf("cache miss for %s", downstreamURL.String())
 		}
 		return nil, err
 	}
@@ -177,6 +187,29 @@ func cachedResponse(req *http.Request, body []byte) *http.Response {
 func cloneURL(u *url.URL) *url.URL {
 	cloned := *u
 	return &cloned
+}
+
+func unwrapScheme(u *url.URL, scheme string) (*url.URL, error) {
+	raw := u.String()
+	prefix := scheme + ":"
+	if !strings.HasPrefix(raw, prefix) {
+		return nil, fmt.Errorf("url does not start with %s prefix", prefix)
+	}
+
+	targetRaw := strings.TrimPrefix(raw, prefix)
+	if targetRaw == "" {
+		return nil, fmt.Errorf("missing downstream URL after %s prefix", prefix)
+	}
+
+	targetURL, err := url.Parse(targetRaw)
+	if err != nil {
+		return nil, fmt.Errorf("parse downstream URL: %w", err)
+	}
+	if targetURL.Scheme == "" {
+		return nil, fmt.Errorf("downstream URL must include scheme")
+	}
+
+	return targetURL, nil
 }
 
 func drainAndClose(body io.ReadCloser) {

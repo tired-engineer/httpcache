@@ -50,8 +50,8 @@ func TestRoundTripCacheFetchAndStore(t *testing.T) {
 	cacheDir := t.TempDir()
 	mockRT := &mockRoundTripper{
 		roundTripFunc: func(req *http.Request) (*http.Response, error) {
-			if req.URL.Scheme != "http" {
-				t.Fatalf("expected upstream scheme http, got %s", req.URL.Scheme)
+			if req.URL.Scheme != "https" {
+				t.Fatalf("expected upstream scheme https, got %s", req.URL.Scheme)
 			}
 			if ims := req.Header.Get("If-Modified-Since"); ims != "" {
 				t.Fatalf("expected no If-Modified-Since on first request, got %q", ims)
@@ -70,7 +70,7 @@ func TestRoundTripCacheFetchAndStore(t *testing.T) {
 	}
 	rt := rawRT.(*cacheRoundTripper)
 
-	req := httptest.NewRequest(http.MethodGet, "cache://example.com/data", nil)
+	req := httptest.NewRequest(http.MethodGet, "cache:https://example.com/data", nil)
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip() error = %v", err)
@@ -81,7 +81,11 @@ func TestRoundTripCacheFetchAndStore(t *testing.T) {
 		t.Fatalf("expected fresh response body, got %q", body)
 	}
 
-	cachePath := rt.cachePathForURL(req.URL)
+	downstreamURL, err := url.Parse("https://example.com/data")
+	if err != nil {
+		t.Fatalf("parse downstream URL: %v", err)
+	}
+	cachePath := rt.cachePathForURL(downstreamURL)
 	cachedBytes, err := os.ReadFile(cachePath)
 	if err != nil {
 		t.Fatalf("read cache file: %v", err)
@@ -101,8 +105,12 @@ func TestRoundTripCacheUsesIfModifiedSinceAndFallsBackToCacheOn304(t *testing.T)
 	}
 	rt := rawRT.(*cacheRoundTripper)
 
-	req := httptest.NewRequest(http.MethodGet, "cache://example.com/data", nil)
-	cachePath := rt.cachePathForURL(req.URL)
+	req := httptest.NewRequest(http.MethodGet, "cache:https://example.com/data", nil)
+	downstreamURL, err := url.Parse("https://example.com/data")
+	if err != nil {
+		t.Fatalf("parse downstream URL: %v", err)
+	}
+	cachePath := rt.cachePathForURL(downstreamURL)
 	if err := writeCacheFile(cachePath, []byte("cached-value")); err != nil {
 		t.Fatalf("write cache file: %v", err)
 	}
@@ -156,8 +164,12 @@ func TestRoundTripCacheFallsBackToCacheOnFailure(t *testing.T) {
 	}
 	rt := rawRT.(*cacheRoundTripper)
 
-	req := httptest.NewRequest(http.MethodGet, "cache://example.com/data", nil)
-	cachePath := rt.cachePathForURL(req.URL)
+	req := httptest.NewRequest(http.MethodGet, "cache:https://example.com/data", nil)
+	downstreamURL, err := url.Parse("https://example.com/data")
+	if err != nil {
+		t.Fatalf("parse downstream URL: %v", err)
+	}
+	cachePath := rt.cachePathForURL(downstreamURL)
 	if err := writeCacheFile(cachePath, []byte("cached-error-fallback")); err != nil {
 		t.Fatalf("write cache file: %v", err)
 	}
@@ -186,8 +198,12 @@ func TestRoundTripCachezUsesCacheOnly(t *testing.T) {
 	}
 	rt := rawRT.(*cacheRoundTripper)
 
-	req := httptest.NewRequest(http.MethodGet, "cachez://example.com/data", nil)
-	cachePath := rt.cachePathForURL(req.URL)
+	req := httptest.NewRequest(http.MethodGet, "cachez:https://example.com/data", nil)
+	downstreamURL, err := url.Parse("https://example.com/data")
+	if err != nil {
+		t.Fatalf("parse downstream URL: %v", err)
+	}
+	cachePath := rt.cachePathForURL(downstreamURL)
 	if err := writeCacheFile(cachePath, []byte("cachez-value")); err != nil {
 		t.Fatalf("write cache file: %v", err)
 	}
@@ -212,7 +228,7 @@ func TestRoundTripCachezMiss(t *testing.T) {
 		t.Fatalf("NewRoundTripper() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "cachez://example.com/miss", nil)
+	req := httptest.NewRequest(http.MethodGet, "cachez:https://example.com/miss", nil)
 	_, err = rawRT.RoundTrip(req)
 	if err == nil {
 		t.Fatal("expected error for cachez miss")
@@ -250,7 +266,7 @@ func TestAddCacheRoundTripper(t *testing.T) {
 	}
 
 	client := &http.Client{Transport: transport}
-	cacheURL := "cache://" + parsed.Host + "/resource"
+	cacheURL := "cache:" + parsed.Scheme + "://" + parsed.Host + "/resource"
 
 	resp1, err := client.Get(cacheURL)
 	if err != nil {

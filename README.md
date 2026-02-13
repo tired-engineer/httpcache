@@ -4,13 +4,13 @@
 
 ## Schemes
 
-- `cache://`:
+- `cache:`:
 1. Hashes the request URL with SHA-256 and uses it as the cache file name.
 2. If cached content exists, sends `If-Modified-Since` based on cache file mtime.
 3. If upstream returns a fresh successful response, updates cache and returns it.
 4. If upstream returns `304 Not Modified` (or cannot provide a usable response), returns cached content.
 
-- `cachez://`:
+- `cachez:`:
 1. Returns cached content only.
 2. Does not contact upstream.
 3. Returns an error on cache miss.
@@ -43,7 +43,7 @@ func main() {
 
 	client := &http.Client{Transport: transport}
 
-	resp, err := client.Get("cache://example.com/")
+	resp, err := client.Get("cache:https://example.com/")
 	if err != nil {
 		panic(err)
 	}
